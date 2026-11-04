@@ -1,10 +1,13 @@
-from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
-
-from app.agent.tools.job_tools import search_jobs_tool
-from app.agent.tools.rag_tools import retrieve_policy_tool
+from langchain_core.messages import (
+    SystemMessage,
+    HumanMessage,
+    ToolMessage
+)
 
 from app.config import get_settings
+from app.agent.tools.job_tools import search_jobs_tool
+from app.agent.tools.rag_tools import retrieve_policy_tool
 
 # 1、初始化模型（DeepSeek）
 modelSetting = get_settings()
@@ -12,6 +15,7 @@ llm = ChatOpenAI(
     model=modelSetting.deepseek_model,
     api_key=modelSetting.deepseek_api_key.get_secret_value(),
     base_url=modelSetting.deepseek_base_url,
+    temperature=0
 )
 
 # 2、注册工具
@@ -21,78 +25,116 @@ tools = [
 ]
 
 # 模型绑定工具，让ai可以使用自定义的tool
-llm_with_tools = llm.bind_tools(tools)
+llm_with_tools = llm.bind_tools(
+    tools,
+    tool_choice="auto",
+)
 
 # Python工具注册表
 tool_map = {
     tool.name: tool
     for tool in tools
 }
+SYSTEM_PROMPT = """
+你是BlueHire AI蓝领招聘助手。
 
-# 3、开始创建agent,并开始对话
+你拥有两个工具：
+
+1. search_jobs_tool
+   用途：查询真实招聘岗位。
+   适合城市、工资、夜班、住宿等岗位筛选。
+
+2. retrieve_policy_tool
+   用途：检索指定工厂的政策文档。
+   适合工资结算、离职、宿舍、体检、入职等问题。
+
+规则：
+- 根据用户问题自主选择工具。
+- 如果同时需要多个工具，可以连续调用。
+- 不需要工具的问题，可以直接回答。
+- 查询岗位必须依据MySQL返回的真实数据。
+- 回答工厂政策必须依据Chroma返回的原文。
+- 查询政策前必须明确factory_id，不允许编造。
+- 检索结果没有相关依据时，应说明资料不足。
+- 不要编造岗位、工资政策或报名结果。
+"""
+
+# 3、同一个agent多工具执行
 def run_job_agent(user_input:str = None) -> str:
+
     messages = [
-        SystemMessage(content="""
-                    你是BlueHire AI蓝领招聘助手。
-                    你的任务：
-                    1. 理解求职者的自然语言需求。
-                    2. 需要查询岗位时调用search_jobs_tool;
-                    当用户咨询某个工厂的工资、离职、住宿、入职等政策时，使用retrieve_policy_tool。
-                    检索政策必须明确工厂ID；如果工厂不明确，先询问用户。不得编造未检索到的政策。
-                    3. 从用户输入中提取城市、薪资、夜班和住宿要求。
-                    4. 不要编造数据库里不存在的岗位。
-                    5. 如果查询不到岗位，要如实告知用户。
-                    6. 推荐岗位时尽量展示工厂、岗位、薪资和班次。
-                    注意：
-                    目前min_salary表示用户期望的最低薪资。
-                    如果用户提出的条件超出工具支持范围，
-                    请说明当前无法精确筛选的条件。
-           """),
+        SystemMessage(content=SYSTEM_PROMPT),
         HumanMessage(content=user_input),
     ]
-    # 4、开始对话
-    ai_message = llm_with_tools.invoke(messages)
 
-    # 把模型响应加入上下文
-    messages.append(ai_message)
+    # 最多允许5轮模型工具调用
+    max_rounds = 5
 
-    # 5、执行模型请求调用的工具
-    for tool_call in ai_message.tool_calls:
-        tool_name = tool_call["name"]
-        tool_args = tool_call["args"]
+    for round_number in range(max_rounds):
 
-        print(f"\n工具名称: {tool_name}")
-        print(f"工具参数: {tool_args}")
+        print(f"\n========== 第{round_number+1}轮 ==========")
 
-        tool_obj = tool_map.get(tool_name)
-        try:
-            result = tool_obj.invoke(tool_args)
-        except Exception as exc:
-            print(f"工具执行失败: {exc}")
-            result = "工具执行失败，请稍后重试"
-        print(f"工具结果: {result}")
+        # 模型决定：调用工具还是直接回答
+        ai_message = llm_with_tools.invoke(messages)
 
-        # 将结果作为ToolMessage反馈给模型
-        messages.append(
-            ToolMessage(
-                content=result,
-                tool_call_id=tool_call["id"],
+        messages.append(ai_message)
+
+        # 模型invoke之后，发现不需要调用工具，说明模型已经给出回答
+        if not ai_message.tool_calls:
+            return str(ai_message.content)
+
+        # 模型可能一次调用多个工具
+        for tool_call in ai_message.tool_calls:
+            tool_name = tool_call["name"]
+            tool_args = tool_call["args"]
+
+            print(f"工具名称：{tool_name},工具参数：{tool_args}")
+
+            tool_obj = tool_map.get(tool_name)
+
+            if tool_obj is None:
+                result = f"错误：不存在工具 {tool_name}"
+            else:
+                try:
+                    result = tool_obj.invoke(tool_args)
+                except Exception as exc:
+                    print("工具执行异常：", exc)
+                    result = "工具执行失败，请告知用户稍后重试"
+
+            print("工具返回结果：", result)
+
+            messages.append(
+                ToolMessage(
+                    content=str(result),
+                    tool_call_id=tool_call["id"],
+                ),
             )
-        )
+    # 防止Agent无限循环
+    # 达到上限后不再允许模型调用工具
+    print("已达到最大工具调用轮数")
 
-    # 6、第二次调用模型，把系统提示词、用户提示词、工具响应一起给到大模型
+    messages = messages.append(
+        HumanMessage(
+            content="请根据已有工具结果给出最终回答，不要再调用工具。"
+        )
+    )
+
     final_message = llm.invoke(messages)
 
-    return final_message.content
+    return str(final_message.content)
 
+# 4. 开始测试
 if __name__ == "__main__":
-    humanQuestion = "1001工厂干三天离职，工资怎么算？"
 
-    answer = run_job_agent(user_input=humanQuestion)
+    question = (
+        "帮我找苏州6000以上的工作，"
+        "再告诉我1001工厂离职工资怎么结算？"
+    )
 
-    print("-------------------")
+    answer = run_job_agent(question)
+
+    print("\n\n========== 最终回答 ==========")
     print(answer)
-    print("--------------------")
 
 
 
