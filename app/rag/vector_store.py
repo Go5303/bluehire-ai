@@ -84,7 +84,6 @@ def search_policies(
 
 # 4.本地测试
 if __name__ == "__main__":
-    add_test_documents()
 
     question = "这个厂干三天就不干了，工资还能拿到吗？"
 

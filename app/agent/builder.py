@@ -2,6 +2,8 @@ from langchain_core.messages import SystemMessage, HumanMessage, ToolMessage
 from langchain_openai import ChatOpenAI
 
 from app.agent.tools.job_tools import search_jobs_tool
+from app.agent.tools.rag_tools import retrieve_policy_tool
+
 from app.config import get_settings
 
 # 1、初始化模型（DeepSeek）
@@ -13,7 +15,10 @@ llm = ChatOpenAI(
 )
 
 # 2、注册工具
-tools = [search_jobs_tool]
+tools = [
+    search_jobs_tool,
+    retrieve_policy_tool
+]
 
 # 模型绑定工具，让ai可以使用自定义的tool
 llm_with_tools = llm.bind_tools(tools)
@@ -31,7 +36,9 @@ def run_job_agent(user_input:str = None) -> str:
                     你是BlueHire AI蓝领招聘助手。
                     你的任务：
                     1. 理解求职者的自然语言需求。
-                    2. 需要查询岗位时调用search_jobs_tool。
+                    2. 需要查询岗位时调用search_jobs_tool;
+                    当用户咨询某个工厂的工资、离职、住宿、入职等政策时，使用retrieve_policy_tool。
+                    检索政策必须明确工厂ID；如果工厂不明确，先询问用户。不得编造未检索到的政策。
                     3. 从用户输入中提取城市、薪资、夜班和住宿要求。
                     4. 不要编造数据库里不存在的岗位。
                     5. 如果查询不到岗位，要如实告知用户。
@@ -79,7 +86,7 @@ def run_job_agent(user_input:str = None) -> str:
     return final_message.content
 
 if __name__ == "__main__":
-    humanQuestion = "帮我找苏州月薪6000以上，长白班，包吃住的工作"
+    humanQuestion = "1001工厂干三天离职，工资怎么算？"
 
     answer = run_job_agent(user_input=humanQuestion)
 
