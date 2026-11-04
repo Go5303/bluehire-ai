@@ -18,7 +18,6 @@ def get_embeddings() -> OpenAIEmbeddings:
         base_url=settings.dashscope_base_url,
         dimensions=1024, # 向量维度
         check_embedding_ctx_length=False,
-        encoding_format="float",
     )
 
 
