@@ -123,23 +123,6 @@ def run_job_agent(user_input:str = None) -> str:
 
     return str(final_message.content)
 
-# 4. 开始测试
-if __name__ == "__main__":
-
-    question = (
-        "帮我找苏州6000以上的工作，"
-        "再告诉我1001工厂离职工资怎么结算？"
-    )
-
-    answer = run_job_agent(question)
-
-    print("\n\n========== 最终回答 ==========")
-    print(answer)
-
-
-
-
-
 
 
 
