@@ -1,3 +1,5 @@
+import sys
+
 from langchain_core.messages import HumanMessage, SystemMessage
 
 from langgraph.graph import StateGraph, MessagesState, START
@@ -90,7 +92,31 @@ graph = workflow.compile(
 )
 
 # 5.对外提供聊天函数
-def chat(message:str,  thread_id: str, user_id: str):
+from langgraph.types import Command
+
+def handle_result(result: dict) -> dict:
+    """统一处理Graph的正常回答和中断状态"""
+    # Graph正在等待用户确认
+    if "__interrupt__" in result:
+        interrupts = result["__interrupt__"]
+
+        if interrupts:
+            return {
+                "status": "confirmation_required",
+                "data": interrupts[0].value,
+            }
+
+        # Graph已正常结束
+    return {
+        "status": "completed",
+        "answer": str(result["messages"][-1].content),
+    }
+
+def chat(
+        message:str,
+        thread_id: str,
+        user_id: str
+) -> dict:
     config = {
         "configurable": {
             "thread_id": thread_id,
@@ -108,40 +134,69 @@ def chat(message:str,  thread_id: str, user_id: str):
         context=Context(user_id=user_id)
     )
 
-    return str(result["messages"][-1].content)
+    return handle_result(result)
+
+def confirm_apply(
+    approved: bool,
+    thread_id: str,
+    user_id: str,
+) -> dict:
+    config = {
+        "configurable": {"thread_id": thread_id},
+        "recursion_limit": 12,
+    }
+
+    # 必须先有等待确认的中断
+    state = graph.get_state(config)
+
+    if not state.interrupts:
+        return {
+            "status": "error",
+            "message": "当前会话没有待确认的操作",
+        }
+
+    result = graph.invoke(
+        Command(resume=approved),
+        config=config,
+        context=Context(user_id=user_id),
+    )
+
+    return handle_result(result)
+
 
 # 6. 本地测试
 if __name__ == "__main__":
 
-    from app.agent.memory import save_user_preferences
-
-    thread_id = "test_user_001"
-
+    thread_id = "apply_test_001"
     user_id = "user_001"
 
-    # 第一步：保存长期求职偏好
-    save_user_preferences(
-        user_id=user_id,
-        city="苏州",
-        min_salary=6000,
-        avoid_night_shift=True,
+    # 第一轮：先查询真实岗位
+    result1 = chat(
+        "帮我找苏州6000以上的工作",
+        thread_id,
+        user_id
     )
+    print("第一轮：\n", result1)
 
-    # 第二步：第一个会话
-    question1 = "你好，我想了解一下你能做什么。"
-    answer1 = chat(question1, thread_id, user_id)
+    # 第二轮：申请报名
+    result2 = chat(
+        "帮我报名刚才推荐的第一个岗位",
+        thread_id,
+        user_id,
+    )
+    print("第二轮：\n", result2)
 
-    print("\n========== 第一轮 ==========")
-    print(answer1)
+    # 必须出现等待确认，才能继续
+    if result2["status"] == "confirmation_required":
 
-    # 第三部：新建会话
-    question2 = "我之前找工作有什么要求？"
-    answer2 = chat(question2, "thread_002", user_id)
-
-    print("\n========== 第二轮 ==========")
-    print(answer2)
-
-
+        print("等待确认：", result2["data"])
+        # 模拟用户点击确认
+        result3 = confirm_apply(
+            approved=True,
+            thread_id=thread_id,
+            user_id=user_id,
+        )
+        print("第三轮：", result3)
 
 
 
