@@ -126,7 +126,7 @@ def run_job_agent(user_input:str = None) -> str:
     # 达到上限后不再允许模型调用工具
     print("已达到最大工具调用轮数")
 
-    messages = messages.append(
+    messages.append(
         HumanMessage(
             content="请根据已有工具结果给出最终回答，不要再调用工具。"
         )
