@@ -1,3 +1,4 @@
+from charset_normalizer.md import lru_cache
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 
@@ -5,6 +6,7 @@ from app.config import get_settings
 from app.rag.embeddings import get_embeddings
 
 # 1.初始化chroma
+@lru_cache(maxsize=1)
 def get_vector_store() -> Chroma:
     settings = get_settings()
 

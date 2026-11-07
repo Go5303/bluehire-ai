@@ -1,0 +1,499 @@
+
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BlueHire AI - 智能招聘助手</title>
+
+<style>
+* { box-sizing: border-box; }
+
+body {
+    margin: 0;
+    font-family: -apple-system, BlinkMacSystemFont,
+                 "PingFang SC", sans-serif;
+    background: #f4f6fa;
+    color: #1e293b;
+}
+
+.layout {
+    display: flex;
+    height: 100vh;
+}
+
+.sidebar {
+    width: 230px;
+    background: #142238;
+    color: white;
+    padding: 24px 16px;
+}
+
+.logo {
+    font-size: 22px;
+    font-weight: bold;
+    margin-bottom: 30px;
+}
+
+.sidebar button {
+    width: 100%;
+    padding: 12px;
+    border: 1px solid #475569;
+    border-radius: 9px;
+    background: transparent;
+    color: white;
+    cursor: pointer;
+}
+
+.sidebar p {
+    margin-top: 25px;
+    color: #94a3b8;
+    font-size: 13px;
+    line-height: 2;
+}
+
+.main {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.header {
+    padding: 18px 28px;
+    background: white;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: 600;
+}
+
+.messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 28px;
+}
+
+.message {
+    max-width: 850px;
+    margin: 0 auto 22px;
+    display: flex;
+}
+
+.message.user {
+    justify-content: flex-end;
+}
+
+.bubble {
+    padding: 14px 18px;
+    border-radius: 14px;
+    line-height: 1.8;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    max-width: 88%;
+}
+
+.user .bubble {
+    background: #2563eb;
+    color: white;
+}
+
+.assistant .bubble {
+    background: white;
+    border: 1px solid #e2e8f0;
+}
+
+.status {
+    max-width: 850px;
+    margin: 0 auto 16px;
+    font-size: 13px;
+    color: #64748b;
+}
+
+.confirm-card {
+    max-width: 850px;
+    margin: 0 auto 20px;
+    padding: 20px;
+    background: #fff;
+    border: 1px solid #f59e0b;
+    border-radius: 12px;
+}
+
+.confirm-card button {
+    margin: 12px 8px 0 0;
+    padding: 10px 20px;
+    border: 0;
+    border-radius: 8px;
+    cursor: pointer;
+}
+
+.approve { background: #2563eb; color: white; }
+.cancel { background: #e2e8f0; }
+
+.input-area {
+    background: white;
+    padding: 18px 28px 26px;
+    border-top: 1px solid #e2e8f0;
+}
+
+.input-row {
+    max-width: 850px;
+    margin: auto;
+    display: flex;
+    gap: 12px;
+}
+
+textarea {
+    flex: 1;
+    resize: none;
+    border: 1px solid #cbd5e1;
+    border-radius: 10px;
+    padding: 14px;
+    font: inherit;
+    outline: none;
+}
+
+.send {
+    background: #2563eb;
+    color: white;
+    border: 0;
+    border-radius: 10px;
+    padding: 0 24px;
+    cursor: pointer;
+}
+
+button:disabled {
+    opacity: .5;
+    cursor: not-allowed;
+}
+
+@media (max-width: 650px) {
+    .sidebar { display: none; }
+    .messages { padding: 15px; }
+    .input-area { padding: 12px; }
+}
+</style>
+</head>
+
+<body>
+<div class="layout">
+
+    <aside class="sidebar">
+        <div class="logo">BlueHire AI</div>
+        <button id="newChat">+ 新建会话</button>
+
+        <p>
+            智能岗位推荐<br>
+            工厂政策 RAG 问答<br>
+            多轮会话记忆<br>
+            AI 自动报名
+        </p>
+    </aside>
+
+    <main class="main">
+        <div class="header">BlueHire 智能招聘助手</div>
+
+        <div class="messages" id="messages">
+            <div class="message assistant">
+                <div class="bubble">
+你好！我是BlueHire AI。
+
+你可以直接告诉我：
+想找哪个城市、期望工资多少、
+是否接受夜班、是否需要住宿。
+
+也可以咨询工厂政策或申请报名。
+                </div>
+            </div>
+        </div>
+
+        <div class="input-area">
+            <div class="input-row">
+                <textarea id="input" rows="2"
+                    placeholder="例如：帮我找苏州6000以上、不上夜班的工作"></textarea>
+
+                <button class="send" id="send">发送</button>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+// 本地演示用户；正式项目必须通过登录鉴权获取身份
+const userId = "user_001";
+
+let threadId = crypto.randomUUID();
+let busy = false;
+let awaitingConfirmation = false;
+let statusElement = null;
+
+const messages = document.getElementById("messages");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+
+function scrollToBottom() {
+    messages.scrollTop = messages.scrollHeight;
+}
+
+function setBusy(value) {
+    busy = value;
+    sendBtn.disabled = value || awaitingConfirmation;
+    input.disabled = value || awaitingConfirmation;
+}
+
+function addMessage(role, content) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "message " + role;
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = content;
+
+    wrapper.appendChild(bubble);
+    messages.appendChild(wrapper);
+
+    scrollToBottom();
+    return bubble;
+}
+
+function showStatus(message) {
+    if (!statusElement) {
+        statusElement = document.createElement("div");
+        statusElement.className = "status";
+        messages.appendChild(statusElement);
+    }
+
+    statusElement.textContent = message;
+    scrollToBottom();
+}
+
+function clearStatus() {
+    if (statusElement) {
+        statusElement.remove();
+        statusElement = null;
+    }
+}
+
+// 根据SSE事件更新界面
+function handleEvent(eventName, data, bubble) {
+    if (eventName === "token") {
+        clearStatus();
+        bubble.textContent += data.content || "";
+    }
+
+    if (eventName === "reset") {
+        bubble.textContent = "";
+    }
+
+    if (eventName === "status") {
+        let message = data.message || "处理中...";
+
+        if (data.tool) {
+            message += "：" + data.tool;
+        }
+
+        showStatus(message);
+    }
+
+    if (eventName === "confirmation") {
+        awaitingConfirmation = true;
+        showConfirmation(data.data);
+    }
+
+    if (eventName === "error") {
+        clearStatus();
+        bubble.textContent += "\n错误：" + data.message;
+    }
+
+    if (eventName === "done") {
+        clearStatus();
+    }
+
+    scrollToBottom();
+}
+
+// 解析一个完整SSE事件
+function parseEvent(block) {
+    let eventName = "message";
+    const dataLines = [];
+
+    for (const line of block.split("\n")) {
+        if (line.startsWith("event:")) {
+            eventName = line.slice(6).trim();
+        } else if (line.startsWith("data:")) {
+            dataLines.push(line.slice(5).trimStart());
+        }
+    }
+
+    if (!dataLines.length) return null;
+
+    return {
+        eventName,
+        data: JSON.parse(dataLines.join("\n"))
+    };
+}
+
+// 发送POST，并逐块读取SSE
+async function requestStream(url, body) {
+    setBusy(true);
+    const bubble = addMessage("assistant", "");
+
+    try {
+        const response = await fetch(url, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify(body),
+        });
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(
+                `HTTP ${response.status}: ${errText}`
+            );
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+
+        let buffer = "";
+
+        while (true) {
+            const {value, done} = await reader.read();
+
+            if (done) break;
+
+            // stream=true防止中文UTF-8跨块乱码
+            buffer += decoder.decode(value, {stream: true});
+            buffer = buffer.replace(/\r\n/g, "\n");
+
+            // SSE事件以空行分隔
+            let index;
+
+            while ((index = buffer.indexOf("\n\n")) !== -1) {
+                const block = buffer.slice(0, index);
+                buffer = buffer.slice(index + 2);
+
+                if (!block.trim()) continue;
+
+                const parsed = parseEvent(block);
+
+                if (parsed) {
+                    handleEvent(
+                        parsed.eventName,
+                        parsed.data,
+                        bubble
+                    );
+                }
+            }
+        }
+
+        // 处理解码器剩余字节及最后一个事件
+        buffer += decoder.decode();
+
+        if (buffer.trim()) {
+            const parsed = parseEvent(buffer);
+            if (parsed) {
+                handleEvent(
+                    parsed.eventName,
+                    parsed.data,
+                    bubble
+                );
+            }
+        }
+
+    } catch (error) {
+        clearStatus();
+        bubble.textContent += "\n请求失败：" + error.message;
+    } finally {
+        clearStatus();
+        setBusy(false);
+    }
+}
+
+// 普通聊天
+async function sendMessage() {
+    if (busy || awaitingConfirmation) return;
+
+    const message = input.value.trim();
+    if (!message) return;
+
+    input.value = "";
+    addMessage("user", message);
+
+    await requestStream("/api/chat/stream", {
+        message,
+        thread_id: threadId,
+        user_id: userId,
+    });
+}
+
+// 显示报名确认卡片
+function showConfirmation(data) {
+    const card = document.createElement("div");
+    card.className = "confirm-card";
+
+    const title = document.createElement("h3");
+    title.textContent = data.message || "确认报名？";
+
+    const detail = document.createElement("p");
+    detail.textContent =
+        `岗位：${data.job_title || "未知"} ` +
+        `（岗位ID：${data.job_id || ""}）`;
+
+    const approve = document.createElement("button");
+    approve.className = "approve";
+    approve.textContent = "确认报名";
+
+    const cancel = document.createElement("button");
+    cancel.className = "cancel";
+    cancel.textContent = "取消报名";
+
+    card.append(title, detail, approve, cancel);
+    messages.appendChild(card);
+
+    async function confirm(approved) {
+        approve.disabled = true;
+        cancel.disabled = true;
+
+        card.remove();
+
+        // 确认接口恢复LangGraph执行
+        await requestStream("/api/chat/confirm", {
+            thread_id: threadId,
+            user_id: userId,
+            approved,
+        });
+
+        awaitingConfirmation = false;
+        setBusy(false);
+    }
+
+    approve.onclick = () => confirm(true);
+    cancel.onclick = () => confirm(false);
+
+    scrollToBottom();
+}
+
+// 发送按钮
+sendBtn.onclick = sendMessage;
+
+// Enter发送，Shift+Enter换行
+input.addEventListener("keydown", event => {
+    if (event.key === "Enter" && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+    }
+});
+
+// 新建独立会话
+document.getElementById("newChat").onclick = () => {
+    if (busy || awaitingConfirmation) return;
+
+    threadId = crypto.randomUUID();
+
+    messages.innerHTML = "";
+    addMessage("assistant", "已创建新会话，可以继续提问。");
+};
+</script>
+</body>
+</html>
