@@ -1,6 +1,8 @@
 from charset_normalizer.md import lru_cache
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
+from pathlib import Path
+
 
 from app.config import get_settings
 from app.rag.embeddings import get_embeddings
@@ -10,10 +12,16 @@ from app.rag.embeddings import get_embeddings
 def get_vector_store() -> Chroma:
     settings = get_settings()
 
+    base_dir = Path(__file__).resolve().parents[2]
+    persist_dir = Path(settings.chroma_persist_dir)
+
+    if not persist_dir.is_absolute():
+        persist_dir = base_dir / persist_dir
+
     return Chroma(
-        collection_name="factory_polices",
+        collection_name="factory_policies",
+        persist_directory=str(persist_dir),
         embedding_function=get_embeddings(),
-        persist_directory=settings.chroma_persist_dir,
     )
 
 # 2.写入测试政策文档
