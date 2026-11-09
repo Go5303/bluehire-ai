@@ -176,26 +176,31 @@ def build_graph(mcp_tools):
         context_schema=Context,
     )
 
+    # 1. 注册Agent节点
     workflow.add_node(
         "agent",
         call_model,
     )
 
+    # 2. 注册工具节点
     workflow.add_node(
         "tools",
         ToolNode(tools),
     )
 
+    # 3. 指定入口
     workflow.add_edge(
         START,
         "agent",
     )
 
+    # 4. 判断Agent是否需要调用工具
     workflow.add_conditional_edges(
         "agent",
         tools_condition,
     )
 
+    # 5. 工具执行完后回到Agent
     workflow.add_edge(
         "tools",
         "agent",
