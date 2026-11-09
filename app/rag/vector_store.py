@@ -1,4 +1,4 @@
-from charset_normalizer.md import lru_cache
+from functools import lru_cache
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from pathlib import Path
@@ -91,20 +91,3 @@ def search_policies(
         k=k,
         filter={"factory_id": factory_id},
     )
-
-# 4.本地测试
-if __name__ == "__main__":
-
-    question = "这个厂干三天就不干了，工资还能拿到吗？"
-
-    results = search_policies(
-        query=question,
-        factory_id="1001",
-    )
-
-    print("\n========== 检索结果 ==========")
-
-    for index, doc in enumerate(results, start=1):
-        print(f"\n第{index}条：")
-        print("内容：", doc.page_content)
-        print("元数据：", doc.metadata)

@@ -108,9 +108,7 @@ LangGraph Agent
 bluehire-ai/
 ├── app/
 │   ├── agent/
-│   │   ├── builder.py
 │   │   ├── workflow.py
-│   │   ├── memory.py
 │   │   ├── mcp_client.py
 │   │   └── tools/
 │   │       ├── job_tools.py
